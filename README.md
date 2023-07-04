@@ -1,2 +1,2 @@
 # EduMakers
-EduMakers' Projects Repository for version control
+EduMakers Projects' Repository for version control
