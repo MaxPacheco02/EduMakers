@@ -21,12 +21,20 @@ import digitalio
 from digitalio import DigitalInOut
 from analogio import AnalogIn
 
+last_1 = 0
+last_2 = 0
+last_3 = 0
 new_last_press = 0
-count = 0
 prevCount = 2
 prevCount2 = 2
 dataPrev = 0
+folders = 3
 
+pause = {
+    0:"Play",
+    1:"Pause",
+}
+    
 lang_dict = {
   1 : "Song",
   2 : "Spanish Maps",
@@ -74,24 +82,21 @@ pn532.SAM_configuration()
 potentiometer = AnalogIn(board.A18)
 
 # MuonCode      MuonPIN     Dip Switch 4 (0 to 1)
-# board.D21      PIN27          Dip1      1000
 # board.D20      PIN26          Dip2      0100
 # board.D19      PIN25          Dip3      0010
 # board.D17      PIN22          Dip4      0001
-dipswitch1 = DigitalInOut(board.D21)
-dipswitch2 = DigitalInOut(board.D20)
-dipswitch3 = DigitalInOut(board.D19)
-dipswitch4 = DigitalInOut(board.D17)
-dipswitch1.switch_to_input(pull=digitalio.Pull.UP)
-dipswitch2.switch_to_input(pull=digitalio.Pull.UP)
-dipswitch3.switch_to_input(pull=digitalio.Pull.UP)
-dipswitch4.switch_to_input(pull=digitalio.Pull.UP)
+pause_but = DigitalInOut(board.D20)
+prev_lang = DigitalInOut(board.D17)
+next_lang = DigitalInOut(board.D19)
+pause_but.switch_to_input(pull=digitalio.Pull.UP)
+prev_lang.switch_to_input(pull=digitalio.Pull.UP)
+next_lang.switch_to_input(pull=digitalio.Pull.UP)
 
 time.sleep(0.5)
-player.set_volume(10)
-player.play(16,1) # Whenever the device is rebooted, play the 'welcome' track
-print("Sleeping for 1 second Before start")
-time.sleep(1)
+player.set_volume(50)
+player.play(0,0) # Whenever the device is rebooted, play the 'welcome' track
+print("Sleeping for 1.8 seconds Before start")
+time.sleep(1.8)
 
 '''
 This is the main function. It's an infinite loop which in every iteration reads
@@ -100,16 +105,25 @@ y turns off the status LED for 5 seconds, indicating the reading service is
 temporarily unavailable.
 '''
 def main_loop(player=player):
-    global prevCount, prevCount2
+    global prevCount, prevCount2, dataPrev
     new_audio=0
     trackPrev = 0
+    index = 0
     print("Waiting for NFC tag to start playing music")
     volPrevio = 30
+
+    player.play(0,index%folders+1)
     while True:
-        track, volPrevio, lang, reboot = read_nfc(volPrevio, new_audio)
-        if track is not None:
+        track, volPrevio, reboot, index, changed_lang = read_nfc(volPrevio, new_audio, index)
+        print("main loop")
+        if changed_lang:
+            player.play(0,index%folders+1)
+            new_audio = time.localtime().tm_sec+time.localtime().tm_min*60
+            dataPrev = 0
+        elif track is not None:
             if led.value or reboot:
-                play_song(lang, track)
+                #player.play(16, 2)
+                player.play(range(folders)[index%folders]+1, track)
                 print("Playing audio... wait at least 3 seconds to track other objects")
                 led.value = False
                 new_audio = time.localtime().tm_sec+time.localtime().tm_min*60
@@ -165,20 +179,57 @@ volume and the language selected, and the status LED remains on until an object 
 read. If the audio is rebooted, it sends the data of the previously received tag to
 be played again.
 '''
-def read_nfc(volPrevio, new_audio):
-    global dataPrev
+def read_nfc(volPrevio, new_audio, index):
+    global dataPrev, last_1, last_2, last_3
+    count = 0
+    last = 0
+    changed_lang = False
+    played = False
+    lang = 0
     print("Waiting for RFID/NFC card to read!")
     while True:
         volPrevio = volume(volPrevio)
-        lang = language()
+
+        if timer(new_audio, 1):
+            lang = language()
+            if lang[0] and not last:
+                count+=1
+                last_3 = last_2
+                last_2 = last_1
+                last_1 = time.localtime().tm_sec+time.localtime().tm_min*60
+                if last_1 - last_3 < 2:
+                    print("Reboot")
+                    if dataPrev == 0:
+                        return None, volPrevio, True, index, False
+                    else:
+                        return dataPrev, volPrevio, True, index, False
+
+            last = lang[0]
+            if lang[1]:
+                return dataPrev, volPrevio, False, index-1, True
+            if lang[2]:
+                return dataPrev, volPrevio, False, index+1, True
+        
+        if count%2 == 1:
+            player.pause()
+            played = False
+        elif not played:
+            print('a')
+            if dataPrev != 0:
+                player.play()
+            played = True
+
         if not led.value:
             led.value = timer(new_audio, 3)
-        uid = pn532.read_passive_target(timeout=0.5)
-        print(f"Volume: {volPrevio}, Language: {lang_dict[lang] if lang in lang_dict else 'not found'}, {led.value}")
-        if reset_audio():
-            print('REBOOT')
-            return dataPrev, volPrevio, lang, True
 
+        #print(f"Audio status: {pause[count%2]}, Index: {index}, List: {lang}")
+        print(f"Volume: {volPrevio}, ({potentiometer.value}), {led.value}")
+        if reset_audio(count):
+            pass
+            #print('REBOOT')
+            #return dataPrev, volPrevio, lang, True
+
+        uid = pn532.read_passive_target(timeout=0.03)
         if uid is not None:
             print(f"\nFound card with UID: {[hex(i) for i in uid]}")
             print(f"Reading Page {4} ...")
@@ -187,7 +238,7 @@ def read_nfc(volPrevio, new_audio):
                 data = int.from_bytes(data, "big")
                 dataPrev = data
                 print(f"The number read is: {data}")
-            return data, volPrevio, lang, False
+            return data, volPrevio, False, index, changed_lang
 
 '''
 Mapping function from the read values of the potentiometer to a percentage.
@@ -212,9 +263,8 @@ where the wished language/book/theme points to.
 # 16-Default beeps (DO NOT REMOVE)
 '''
 def language():
-    dipswitch = [dipswitch1.value, dipswitch2.value, dipswitch3.value, dipswitch4.value]
-    dipstring = ''.join(str(int(x^1)) for x in dipswitch)
-    return int(dipstring,2)
+    lang = [next_lang.value, prev_lang.value, pause_but.value]
+    return [int(x^1) for x in lang]
 
 '''
 This function returns a boolean value comparing if certain seconds have passed based
@@ -232,9 +282,8 @@ This function detects how many times the button has been pressed in the last
 2 seconds. According to most audio systems, if the pause/play button is pressed
 3 times in a certain amount of time, a song is played again from the beginning.
 '''
-def reset_audio():
-    global prevCount, prevCount2, count, new_last_press
-    count = player.get_status()
+def reset_audio(count):
+    global prevCount, prevCount2, new_last_press
     if count != prevCount2:
         prevCount2 = count
         new_last_press = time.localtime().tm_sec+time.localtime().tm_min*60
@@ -258,6 +307,6 @@ def play_song(lang, track):
     if lang in lang_dict:
         player.play(lang, track)
     else:
-        player.play(16, 2)
+        player.play(99, 99)
 
 main_loop()
