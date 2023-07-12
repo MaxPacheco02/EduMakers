@@ -22,7 +22,6 @@ mag_2 = [7,8,25,24]
 mag_in_1 = 19
 mag_in_2 = 26
 state = [0]*32
-last = [0]*32
 last_changed = -1
  
 #set up the GPIO events on those pins
@@ -67,11 +66,12 @@ def byte(num):
        return out
 
 def mag_handler(index, val):
-        global state, last, last_changed
+        global state, last_changed
         
-        if val:
-                rc = subprocess.check_call("./play.sh 'audio/%s.mp3'" % 1, shell=True)
-        
+        if val and not state[index] :
+                rc = subprocess.call("./play.sh 'audio/%s.mp3'" % index, shell=True)
+        state[index] = val
+        last_changed = index
 
 #set up the interrupts
 GPIO.add_event_detect(clk, GPIO.RISING, callback=encoderClicked, bouncetime=50)
@@ -79,22 +79,21 @@ GPIO.add_event_detect(dt, GPIO.RISING, callback=encoderClicked, bouncetime=50)
 GPIO.add_event_detect(sw, GPIO.FALLING, callback=swClicked, bouncetime=200)
  
 while True:
-        print("Paused:", int(paused), "Encoder:", counter, )
-        num = (num+1) % 32
+        #print("Paused:", int(paused), "Encoder:", counter, )
+        num = (num+1) % 16
         sel = byte(num)
         for i in range(4):
                 GPIO.output(mag_1[i], sel[i])
                 GPIO.output(mag_2[i], sel[i])
-        print(GPIO.input(mag_in_1))
-        mag_handler(num, GPIO.input(mag_in_1))
-        mag_handler(num+16, GPIO.input(mag_in_2))
-        time.sleep(1)
+        val = [GPIO.input(mag_in_1), GPIO.input(mag_in_2)]
+        #print(state)
+        mag_handler(num+16, val[0])
+        mag_handler(num, val[1])
+        time.sleep(0.1)
 
 GPIO.cleanup()
 
 '''
 Lines 41, 42, 52, 53 have negations needed to simulate the encoder with buttons.
 They need to be reversed again to work correctly in the final implementation.
-
-
 '''
