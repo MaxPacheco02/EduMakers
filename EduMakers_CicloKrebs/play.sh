@@ -1,2 +1,2 @@
 #!/bin/bash
-play $1
+play -v 4 $1
