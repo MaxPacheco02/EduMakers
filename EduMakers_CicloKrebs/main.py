@@ -14,13 +14,13 @@ num = 0
 GPIO.setmode(GPIO.BCM) 
  
 #set up the pins we have been using
-clk = 14
-dt = 15
-sw = 18
-mag_1 = [21,20,16,12]
-mag_2 = [7,8,25,24]
-mag_in_1 = 19
-mag_in_2 = 26
+clk = 22
+dt = 27
+sw = 17
+mag_1 = [14,15,18,23]
+mag_2 = [25,8,7,12]
+mag_in_1 = 24
+mag_in_2 = 16
 state = [0]*32
 last_changed = -1
  
