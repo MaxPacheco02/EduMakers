@@ -26,14 +26,19 @@ mag_in_2 = 16
 
 led = [2,3,4]
 
-state = [0]*32
+old_state = 0
+state = 0
+last_state_change = datetime.now()
+
+loaded = False
+
 last_changed = -1
 last_raised = []
 
-last_paused_time = 0
+last_paused_time = datetime.now()
 button_still_pressed = False
 
-lang_no = next(os.walk("/audio/0"))
+lang_no = len(next(os.walk("/home/pi4/EduMakers/EduMakers_CicloKrebs/audio/0/"))[2])
 lang_index = 0
  
 # Set up the GPIO events on those pins
@@ -61,16 +66,16 @@ mixer.init()
  
 # Define functions which will be triggered on pin state changes
 def volChange(channel):
-        global counter
+        global counter, state
         clkState = GPIO.input(clk)
         dtState = GPIO.input(dt)
  
         if not clkState and dtState:
                 counter = counter - step
-                led_display(7)
+                state = 7
         elif clkState and not dtState:
                 counter = counter + step
-                led_display(5)
+                state = 5
         
         if counter > 1:
                 counter = 1
@@ -81,18 +86,24 @@ def volChange(channel):
 
         print ("Counter ", counter)
 
-def butPressed(channel):
-        global paused, button_still_pressed, last_paused_time
-        paused = not paused
-        mixer.music.pause() if paused else mixer.music.unpause()
-        led_display(4) if paused else led_display(1)
-        print ("Paused ", paused)
-        button_still_pressed = True
-        last_paused_time = datetime.now()
+def butChange(channel):
+        global paused, button_still_pressed, last_paused_time, state
 
-def butReleased(channel):
-        global button_still_pressed
-        button_still_pressed = False
+        if not GPIO.input(sw):
+                paused = not paused
+                mixer.music.pause() if paused else mixer.music.unpause()
+                if paused:
+                        state = 4
+                elif loaded:
+                        state = 1
+                else:
+                        state = 2
+                print ("Paused ", paused)
+                button_still_pressed = True
+                last_paused_time = datetime.now()
+        else:
+                print("RELEASED " * 10)
+                button_still_pressed = False
 
 def byte(num):
        out = []
@@ -101,76 +112,79 @@ def byte(num):
        return out
 
 def mag_handler(index, val):
-        global state, last_changed, last_raised
+        global state, last_changed, last_raised, loaded
 
         if val and index not in last_raised:
                 last_changed = index
                 last_raised.append(index)
-                play(lang_index+1,index+1)
-                led_display(1)
+                loaded = True
+                play(lang_index+1,index+1, -1)
+                state = 1
         
         if not val and index in last_raised:
                 if last_changed == index:
                         mixer.music.stop()
-                        led_display(2)
+                        loaded = False
+                        state = 2
                 last_raised.remove(index)
-                
-        
-        '''
-        if val and not state[index] :
-                play(1,index+1)                
-        
-        if state[index] != val:
-                state[index] = val
-                last_changed = index
-        '''
 
 def led_display(num): # Decimal to binary conversion of the RGB code, containing 8 combinations.
         num_code = bin(num)[2:].zfill(3)
         for i in range(3):
                 GPIO.output(led[i], int(num_code[i]))
 
-def play(lang, track):
+def play(lang, track, loop):
         address = "/home/pi4/EduMakers/EduMakers_CicloKrebs/audio/" + str(lang) + "/" + str(track) + ".mp3"
         #address = "/home/pi4/EduMakers/EduMakers_CicloKrebs/audio/huuh.mp3"
         print("=" * 20)
         print("playing:", track)
         mixer.music.load(address)
-        mixer.music.play()
+        mixer.music.play(loops = loop)
 
 #set up the interrupts
 time.sleep(1)
 GPIO.add_event_detect(clk, GPIO.RISING, callback=volChange, bouncetime=50)
 GPIO.add_event_detect(dt, GPIO.RISING, callback=volChange, bouncetime=50)
-GPIO.add_event_detect(sw, GPIO.FALLING, callback=butPressed, bouncetime=200)
-GPIO.add_event_detect(sw, GPIO.RISING, callback=butReleased, bouncetime=200)
+GPIO.add_event_detect(sw, GPIO.BOTH, callback=butChange, bouncetime=50)
 
-play(0, lang_index+1)
-led_display(2)
+play(0, lang_index+1, 0)
+state = 2
 
 while True:
         #print("Paused:", int(paused), "Encoder:", counter)
         num = (num+1) % 16
         sel = byte(num)
+
+        if state != old_state:
+                last_state_change = datetime.now()
+                old_state = state
+
+        if (datetime.now() - last_state_change).microseconds> 100_000:
+                led_display(old_state)
+                if old_state in [3,5,7]:
+                        if paused:
+                                state = 4
+                        elif loaded:
+                                state = 1
+                        else:
+                                state = 2
+
         for i in range(4):
                 GPIO.output(mag_1[i], sel[i])
                 GPIO.output(mag_2[i], sel[i])
+        time.sleep(0.02)
         val = [GPIO.input(mag_in_1) ^ 1, GPIO.input(mag_in_2) ^ 1]
         
-        delta_time = datetime.now() - last_paused_time
-        if delta_time.seconds > 3:
+        if (datetime.now() - last_paused_time).seconds > 2 and button_still_pressed:
+                button_still_pressed = False
+                mixer.music.stop()
+                loaded = False
                 lang_index = (lang_index+1) % lang_no
-                play(0, lang_index+1)
-                led_display(3)
+                play(0, lang_index+1, 0)
+                state = 3
         #print(counter, paused, last_changed)
-        print(lang_index, last_raised)
+        #print(lang_index, last_raised)
+        #print(last_raised, ' ' * 20, num+16, val[1], num, val[0])
+        print(state)
         mag_handler(num+16, val[1])
         mag_handler(num, val[0])
-        time.sleep(0.02)
-
-GPIO.cleanup()
-
-# Pendiente:
-# - Probar status de LEDs
-# - Probar camdio de lenguaje
-# - Probar funcionalidad de parar en cuanto el último recogido sea puesto de nuevo con implementacion de listas
