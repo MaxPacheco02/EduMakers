@@ -6,7 +6,7 @@ from pygame import mixer
  
 os.system('clear') #clear screen, this is just for the OCD purposes
  
-step = 10 #linear steps for increasing/decreasing volume
+step = 0.1 #linear steps for increasing/decreasing volume
 paused = False #paused state
 num = 0
  
@@ -43,7 +43,7 @@ GPIO.setup(mag_1[3], GPIO.OUT)
 GPIO.setup(mag_2[3], GPIO.OUT)
  
 # Get the initial states
-counter = 50
+counter = 0.5
 clkLastState = GPIO.input(clk)
 dtLastState = GPIO.input(dt)
 swLastState = GPIO.input(sw)
@@ -52,25 +52,31 @@ swLastState = GPIO.input(sw)
 mixer.init()
  
 # Define functions which will be triggered on pin state changes
-def encoderClicked(channel):
+def volChange(channel):
         global counter
         clkState = GPIO.input(clk)
         dtState = GPIO.input(dt)
  
         if not clkState and dtState:
-                counter = counter + step
-        elif clkState and not dtState:
                 counter = counter - step
+        elif clkState and not dtState:
+                counter = counter + step
         
-        #mixer.music.set_volume(counter)
+        if counter > 1:
+                counter = 1
+        if counter < 0:
+                counter = 0
+        
+        mixer.music.set_volume(counter)
 
         print ("Counter ", counter)
 
-def swClicked(channel):
+def butPressed(channel):
         global paused
         paused = not paused
-        mixer.music.stop 
-        #if paused else mixer.music.unpause
+        #mixer.music.stop()
+        #mixer.music.fadeout
+        mixer.music.pause() if paused else mixer.music.unpause()
         print ("Paused ", paused)
 
 def byte(num):
@@ -96,6 +102,7 @@ def led_display(num):
 
 def play(lang, track):
         address = "/home/pi4/EduMakers/EduMakers_CicloKrebs/audio/" + str(lang) + "/" + str(track+1) + ".mp3"
+        #address = "/home/pi4/EduMakers/EduMakers_CicloKrebs/audio/huuh.mp3"
         print("=" * 20)
         print("playing:", track)
         mixer.music.load(address)
@@ -103,9 +110,9 @@ def play(lang, track):
 
 #set up the interrupts
 time.sleep(1)
-GPIO.add_event_detect(clk, GPIO.RISING, callback=encoderClicked, bouncetime=50)
-GPIO.add_event_detect(dt, GPIO.RISING, callback=encoderClicked, bouncetime=50)
-GPIO.add_event_detect(sw, GPIO.FALLING, callback=swClicked, bouncetime=200)
+GPIO.add_event_detect(clk, GPIO.RISING, callback=volChange, bouncetime=50)
+GPIO.add_event_detect(dt, GPIO.RISING, callback=volChange, bouncetime=50)
+GPIO.add_event_detect(sw, GPIO.FALLING, callback=butPressed, bouncetime=200)
  
 while True:
         #print("Paused:", int(paused), "Encoder:", counter)
@@ -122,3 +129,8 @@ while True:
         time.sleep(0.02)
 
 GPIO.cleanup()
+
+# Pendiente:
+# - Status de LEDs
+# - Cambiar lenguaje
+# - Parar en cuanto el último recogido sea puesto de nuevo
