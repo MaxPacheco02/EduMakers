@@ -23,7 +23,7 @@ from analogio import AnalogIn
 
 # Global Variables
 last_press = [0,0,0]    # List with the last 3 recorded times of button presses.
-last_track = 0 # In case of reboot, we must know which track was played last.
+last_track = None # In case of reboot, we must know which track was played last.
 folders = 3 # Know the number of extra folders included so the program iterates between them.
 
 # MuonCode      MuonPIN/LED
@@ -68,8 +68,8 @@ potentiometer = AnalogIn(board.A18)
 # board.D20      PIN26          Dip2      0100
 # board.D19      PIN25          Dip3      0010
 # board.D17      PIN22          Dip4      0001
-pause_button = DigitalInOut(board.D19)
-killswitch = DigitalInOut(board.D20)
+pause_button = DigitalInOut(board.D17)
+killswitch = DigitalInOut(board.D19)
 pause_button.switch_to_input(pull=digitalio.Pull.UP)
 killswitch.switch_to_input(pull=digitalio.Pull.UP)
 
@@ -163,18 +163,21 @@ def read_nfc(volPrevio, new_audio, index):
     last_state = 0 # The last/previous state of the pause button in the current loop iteration
     been_on = False # Know if the button has been kept pressed
     played = False # Know if the audio is playing
+    pause_released = False # Variable that validates the pause button has been released, to avoid the title announcement being interrupted
     print("Waiting for RFID/NFC card to read!")
     while True:
-        if killswitch.value: # The system can only work if the switch is on.
+        if killswitch.value ^ 1: # The system can only work if the switch is on.
             volPrevio = volume(volPrevio) # Configure player volume
-            if timer(new_audio, 1): # Enable button funcionality until 1 second after the audio has started playing
+            if pause_button.value:
+                pause_released = True # If the pause button has been released at least once, everything can now start working.
+            if timer(new_audio, 1) and pause_released: # Enable button funcionality until 1 secon after the audio has started playing
                 but = pause_button.value ^ 1
                 if but and not last_state: # If the button is pressed and it wasn't...
                     pause = not pause # Iterate pause command
                     last_press[2] = last_press[1] # Shift list values to have the 3 most recent times
                     last_press[1] = last_press[0]
                     last_press[0] = time.localtime().tm_sec+time.localtime().tm_min*60
-                    if last_press[0] - last_press[2] < 2: # If there's been 3 presses in less than 2 seconds...
+                    if last_track is not None and last_press[0] - last_press[2] < 2: # If there's been 3 presses in less than 2 seconds...
                         print("Reboot")
                         return last_track, volPrevio, True, index, False
 
@@ -187,12 +190,12 @@ def read_nfc(volPrevio, new_audio, index):
                     print("Changing to the next Folder")
                     return last_track, volPrevio, False, index+1, True
 
-                if pause: #If the pause command is True...
-                    player.pause()
-                    played = False
-                elif not played and last_track is not None: # If pause command is False, audio stopped, and track detected...
-                    player.play()
-                    played = True
+            if pause: #If the pause command is True...
+                player.pause()
+                played = False
+            elif not played and last_track is not None: # If pause command is False, audio stopped, and track detected...
+                player.play()
+                played = True
 
             if not led.value: # If the reading service is unavailable
                 led.value = timer(new_audio, 3) # Wait until the 3 seconds have passed to make it availble
@@ -206,10 +209,11 @@ def read_nfc(volPrevio, new_audio, index):
                 data = pn532.ntag2xx_read_block(4) # Store data
                 if data is not None:
                     data = int.from_bytes(data, "big")
-                    last_track = data # Save track number in case of a reboot
+                    last_track = data # Save track number in case of a reboot, else the data would be lost
                     print(f"The number read is: {data}")
                 return data, volPrevio, False, index, False
         else: # Make sure neither the LED nor the music is on
+            last_track = None
             if led.value:
                 led.value = False
             if played:
