@@ -69,7 +69,7 @@ def volChange(channel):
  
         if not clkState and dtState:
                 volume = volume - step
-                state = 7 # Decrease volume state (white)
+                state = 6 # Decrease volume state (yellow)
         elif clkState and not dtState:
                 volume = volume + step
                 state = 5 # Increase volume state (magenta)
@@ -155,14 +155,14 @@ state = 2 # Standby state (green)
 while True: # Infinite loop
         num = (num+1) % 16 # Iterate the address read on demux
         sel = byte(num) # Convert decimal to 4-bit number
-
+        print(last_raised)
         if state != old_state: # If the current state differs from the last displayed...
                 last_state_change = datetime.now() # Register new time for the state change
                 old_state = state # Update the state
 
         if (datetime.now() - last_state_change).microseconds> 100_000: # Change the state 0.1 seconds after its change
                 led_display(old_state) # Display the state with the LED
-                if old_state in [3,5,7]: # If the state belongs to one of the 3 non-important states (volume up/down or language change)...
+                if old_state in [3,5,6]: # If the state belongs to one of the 3 non-important states (volume up/down or language change)...
                         if paused: # Return to red if important state was pause
                                 state = 4 # Pause state (red)
                         elif loaded: # Return to blue if important state was playing
