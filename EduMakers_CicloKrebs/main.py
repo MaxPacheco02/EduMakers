@@ -175,6 +175,8 @@ while True: # Infinite loop
                 GPIO.output(mag_2[i], sel[i])
         time.sleep(0.02) # Wait 20 ms
         val = [GPIO.input(mag_in_1) ^ 1, GPIO.input(mag_in_2) ^ 1] # Read each of the demux values
+        # NOTE: This values are inverted due to the simulations created before the complete box design with the formulas.
+        # To enable the box features (revert the values) just delete the ' ^ 1 ' symbols in line 177.
         
         if (datetime.now() - last_paused_time).seconds > 2 and button_still_pressed: # If the button has been pressed for 3 seconds...
                 button_still_pressed = False # Wait until the button is released to change languages again
